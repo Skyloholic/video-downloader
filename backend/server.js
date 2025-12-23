@@ -218,12 +218,12 @@ app.get('*', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  const isLocal = process.env.NODE_ENV !== 'production';
-  const serverUrl = isLocal 
-    ? `http://localhost:${PORT}` 
-    : `https://youtubevideodownloaderfreefree.onrender.com`;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const serverUrl = isProduction 
+    ? `https://youtubevideodownloaderfreefree.onrender.com` 
+    : `http://localhost:${PORT}`;
   
   console.log(`🚀 Server running on ${serverUrl}`);
   console.log(`📱 Frontend available at ${serverUrl}`);
-  console.log('✅ Multi-platform video downloader ready!');
+  console.log(`✅ Multi-platform video downloader ready! (${isProduction ? 'Production' : 'Development'})`);
 });
