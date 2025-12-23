@@ -304,7 +304,7 @@ function analyze() {
   document.getElementById("loader").classList.remove("hidden");
   document.getElementById("results").classList.add("hidden");
 
-  fetch("http://localhost:3000/api/analyze", {
+  fetch("https://youtubevideodownloaderfreefree.onrender.com/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url })
@@ -490,7 +490,7 @@ function downloadVideo(url, format_id) {
     progressBar.style.setProperty('--progress-width', currentPercent + "%");
   }, 300);
 
-  fetch("http://localhost:3000/api/download", {
+  fetch("https://youtubevideodownloaderfreefree.onrender.com/api/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, format_id })
