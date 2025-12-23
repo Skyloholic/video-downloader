@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const ytdl = require('ytdl-core');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,21 +29,34 @@ app.post('/api/analyze', async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
-    // TODO: Integrate with yt-dlp or similar library to get video info
-    // For now, returning mock data structure that your frontend expects
-    const mockFormats = {
-      title: 'Sample Video Title',
-      duration: 300,
-      thumbnail: 'https://via.placeholder.com/320x180',
-      formats: [
-        { format_id: '18', resolution: '360p', ext: 'mp4', filesize: '10MB' },
-        { format_id: '22', resolution: '720p', ext: 'mp4', filesize: '25MB' },
-        { format_id: '137', resolution: '1080p', ext: 'mp4', filesize: '50MB' },
-        { format_id: '251', resolution: 'audio', ext: 'mp3', filesize: '5MB' },
-      ]
-    };
+    // Check if it's a YouTube URL
+    if (ytdl.validateURL(url)) {
+      try {
+        const info = await ytdl.getInfo(url);
+        const formats = info.formats
+          .filter(f => f.hasVideo || f.hasAudio)
+          .map(f => ({
+            format_id: f.itag,
+            resolution: f.qualityLabel || 'audio',
+            ext: f.container,
+            filesize: f.contentLength ? `${Math.round(f.contentLength / 1024 / 1024)}MB` : 'Unknown'
+          }))
+          .filter((f, i, arr) => arr.findIndex(x => x.resolution === f.resolution) === i); // Remove duplicates
 
-    res.json(mockFormats);
+        res.json({
+          title: info.videoDetails.title,
+          duration: info.videoDetails.lengthSeconds,
+          thumbnail: info.videoDetails.thumbnail.thumbnails[0].url,
+          formats: formats.slice(0, 10) // Limit to 10 formats
+        });
+      } catch (error) {
+        console.error('ytdl error:', error.message);
+        res.status(400).json({ error: 'Failed to fetch video info. Video may be private or unavailable.' });
+      }
+    } else {
+      // For non-YouTube URLs, return a generic message
+      res.status(400).json({ error: 'Currently only YouTube videos are supported' });
+    }
   } catch (error) {
     console.error('Analyze error:', error);
     res.status(500).json({ error: 'Failed to analyze video' });
@@ -58,15 +72,28 @@ app.post('/api/download', async (req, res) => {
       return res.status(400).json({ error: 'URL and format_id are required' });
     }
 
-    // TODO: Integrate with yt-dlp to download video and generate download link
-    // For now, returning mock response
-    const mockDownloadUrl = `https://example.com/downloads/video_${Date.now()}.mp4`;
+    if (ytdl.validateURL(url)) {
+      try {
+        const info = await ytdl.getInfo(url);
+        const format = info.formats.find(f => String(f.itag) === String(format_id));
 
-    res.json({ 
-      url: mockDownloadUrl,
-      filename: 'video_download.mp4',
-      size: '25MB'
-    });
+        if (!format) {
+          return res.status(400).json({ error: 'Format not found' });
+        }
+
+        // Return download URL
+        res.json({
+          url: format.url,
+          filename: `${info.videoDetails.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${format.container}`,
+          size: format.contentLength ? `${Math.round(format.contentLength / 1024 / 1024)}MB` : 'Unknown'
+        });
+      } catch (error) {
+        console.error('Download error:', error.message);
+        res.status(400).json({ error: 'Failed to get download link' });
+      }
+    } else {
+      res.status(400).json({ error: 'Currently only YouTube videos are supported' });
+    }
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).json({ error: 'Failed to download video' });
