@@ -218,8 +218,12 @@ app.get('*', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📱 Frontend available at http://localhost:${PORT}`);
-  console.log('ℹ️ Make sure yt-dlp is installed: pip install yt-dlp');
+  const isLocal = process.env.NODE_ENV !== 'production';
+  const serverUrl = isLocal 
+    ? `http://localhost:${PORT}` 
+    : `https://youtubevideodownloaderfreefree.onrender.com`;
+  
+  console.log(`🚀 Server running on ${serverUrl}`);
+  console.log(`📱 Frontend available at ${serverUrl}`);
   console.log('✅ Multi-platform video downloader ready!');
 });
