@@ -304,7 +304,11 @@ function analyze() {
   document.getElementById("loader").classList.remove("hidden");
   document.getElementById("results").classList.add("hidden");
 
-  fetch("http://localhost:3000/api/analyze", {
+  const apiUrl = window.location.hostname === 'localhost' 
+    ? 'http://localhost:3000/api/analyze' 
+    : window.location.origin + '/api/analyze';
+
+  fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url })
