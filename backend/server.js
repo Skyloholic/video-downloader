@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,19 +14,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // Serve frontend files (static files from parent directory)
 app.use(express.static(path.join(__dirname, '../frontend')));
-
-// Try to use ytdl-core with better error handling
-let ytdl;
-try {
-  ytdl = require('@distube/ytdl-core');
-} catch (e) {
-  console.log('distube/ytdl-core not available, trying ytdl-core');
-  try {
-    ytdl = require('ytdl-core');
-  } catch (e2) {
-    console.log('ytdl-core also not available');
-  }
-}
 
 // API Routes
 
@@ -45,44 +34,64 @@ app.post('/api/analyze', async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
-    // Check if YouTube URL
-    if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-      return res.status(400).json({ error: 'Only YouTube videos are supported' });
-    }
-
-    if (!ytdl || !ytdl.validateURL) {
-      return res.status(500).json({ error: 'Video downloader not available' });
-    }
-
-    if (!ytdl.validateURL(url)) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
-    }
-
+    // Use Python yt-dlp helper for all platforms
     try {
-      console.log('Getting info for:', url);
-      const info = await ytdl.getInfo(url);
-      console.log('Got info:', info.videoDetails.title);
-      
-      const formats = info.formats
-        .filter(f => f.hasVideo || f.hasAudio)
-        .map(f => ({
-          format_id: String(f.itag || f.quality),
-          resolution: f.qualityLabel || f.quality || 'audio',
-          ext: f.mimeType ? f.mimeType.split('/')[1].split(';')[0] : 'mp4',
-          filesize: f.contentLength ? `${Math.round(f.contentLength / 1024 / 1024)}MB` : 'Unknown',
-          itag: f.itag
-        }))
-        .filter((f, i, arr) => arr.findIndex(x => x.resolution === f.resolution) === i);
+      const info = await new Promise((resolve, reject) => {
+        const python = spawn('python', [path.join(__dirname, 'yt_dlp_helper.py'), 'info', url]);
+        let output = '';
+        let error = '';
+
+        python.stdout.on('data', (data) => {
+          output += data.toString();
+        });
+
+        python.stderr.on('data', (data) => {
+          error += data.toString();
+        });
+
+        python.on('close', (code) => {
+          if (code === 0) {
+            try {
+              resolve(JSON.parse(output));
+            } catch (e) {
+              reject(new Error('Failed to parse video info'));
+            }
+          } else {
+            reject(new Error(error || 'Failed to fetch video info'));
+          }
+        });
+
+        python.on('error', (err) => {
+          reject(new Error('yt-dlp not available. Install with: pip install yt-dlp'));
+        });
+      });
+
+      const formats = [];
+      if (info.formats) {
+        info.formats.forEach(f => {
+          if ((f.vcodec && f.vcodec !== 'none') || (f.acodec && f.acodec !== 'none')) {
+            formats.push({
+              format_id: f.format_id || String(f.format),
+              resolution: f.format || 'unknown',
+              height: f.height || 0,
+              ext: f.ext || 'mp4',
+              filesize: f.filesize || null,
+              vcodec: f.vcodec,
+              acodec: f.acodec
+            });
+          }
+        });
+      }
 
       res.json({
-        title: info.videoDetails.title,
-        duration: info.videoDetails.lengthSeconds,
-        thumbnail: info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1]?.url || '',
-        formats: formats.slice(0, 15)
+        title: info.title || 'Unknown Title',
+        duration: info.duration || 0,
+        thumbnail: info.thumbnail || (info.thumbnails && info.thumbnails[0]?.url) || '',
+        formats: formats.slice(0, 20)
       });
     } catch (error) {
       console.error('Error fetching video info:', error.message);
-      res.status(400).json({ error: 'Failed to fetch video info. Video may be unavailable or private.' });
+      res.status(400).json({ error: 'Failed to fetch video info. ' + error.message });
     }
   } catch (error) {
     console.error('Analyze error:', error);
@@ -90,48 +99,67 @@ app.post('/api/analyze', async (req, res) => {
   }
 });
 
-// Download endpoint
+// Download endpoint - streams directly to browser
 app.post('/api/download', async (req, res) => {
   try {
     const { url, format_id } = req.body;
     console.log('Download request for:', url, 'format:', format_id);
 
-    if (!url || !format_id) {
-      return res.status(400).json({ error: 'URL and format_id are required' });
-    }
-
-    // Check if YouTube URL
-    if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-      return res.status(400).json({ error: 'Only YouTube videos are supported' });
-    }
-
-    if (!ytdl || !ytdl.validateURL) {
-      return res.status(500).json({ error: 'Video downloader not available' });
-    }
-
-    if (!ytdl.validateURL(url)) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
     }
 
     try {
-      const info = await ytdl.getInfo(url);
-      const format = info.formats.find(f => String(f.itag) === String(format_id));
+      // Use yt-dlp to stream video directly to response
+      const python = spawn('python', [
+        '-m', 'yt_dlp',
+        '-f', format_id,
+        '-o', '-',  // Output to stdout
+        url
+      ]);
 
-      if (!format) {
-        return res.status(400).json({ error: 'Format not found' });
-      }
+      // Set response headers for file download
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Transfer-Encoding', 'chunked');
 
-      const ext = format.mimeType ? format.mimeType.split('/')[1].split(';')[0] : 'mp4';
-      const filename = `${info.videoDetails.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${ext}`;
+      let isHeadersSent = false;
 
-      res.json({
-        url: format.url,
-        filename: filename,
-        size: format.contentLength ? `${Math.round(format.contentLength / 1024 / 1024)}MB` : 'Unknown'
+      python.stdout.on('data', (chunk) => {
+        if (!isHeadersSent) {
+          // Headers already sent by default
+          isHeadersSent = true;
+        }
+        res.write(chunk);
       });
+
+      python.stderr.on('data', (data) => {
+        console.error('yt-dlp error:', data.toString());
+        if (!isHeadersSent) {
+          res.status(500).json({ error: 'Download failed: ' + data.toString() });
+        }
+      });
+
+      python.on('close', (code) => {
+        if (code === 0) {
+          console.log('Video streamed successfully');
+          res.end();
+        } else if (!isHeadersSent) {
+          res.status(500).json({ error: 'Download failed with code ' + code });
+        } else {
+          res.end();
+        }
+      });
+
+      python.on('error', (err) => {
+        console.error('Process error:', err);
+        if (!isHeadersSent) {
+          res.status(500).json({ error: 'yt-dlp not available: ' + err.message });
+        }
+      });
+
     } catch (error) {
       console.error('Download error:', error.message);
-      res.status(400).json({ error: 'Failed to get download link' });
+      res.status(400).json({ error: 'Failed to download: ' + error.message });
     }
   } catch (error) {
     console.error('Download error:', error);
@@ -153,30 +181,6 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📱 Frontend available at http://localhost:${PORT}`);
-  if (ytdl) {
-    console.log('✅ Video downloader is available');
-  } else {
-    console.log('⚠️ Video downloader not loaded');
-  }
-});
-
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
-});
-
-// Serve index.html for SPA
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend', 'index.html'));
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📱 Frontend available at http://localhost:${PORT}`);
-  if (ytdl) {
-    console.log('✅ Video downloader is available');
-  } else {
-    console.log('⚠️ Video downloader not loaded');
-  }
+  console.log('ℹ️ Make sure yt-dlp is installed: pip install yt-dlp');
+  console.log('✅ Multi-platform video downloader ready!');
 });

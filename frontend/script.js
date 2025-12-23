@@ -304,7 +304,7 @@ function analyze() {
   document.getElementById("loader").classList.remove("hidden");
   document.getElementById("results").classList.add("hidden");
 
-  fetch("https://youtubevideodownloaderfreefree.onrender.com/api/analyze", {
+  fetch("http://localhost:3000/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url })
@@ -338,87 +338,32 @@ function analyze() {
         formatsList.appendChild(infoCard);
       }
 
-      // Group formats by quality - better filtering for different platforms
-      // Common resolutions to show (filter out unusual ones)
-      const commonResolutions = [144, 240, 360, 480, 720, 1080, 1440, 2160];
-      
-      // Function to map unusual resolutions to nearest common one
-      function mapToCommonResolution(height) {
-        if (!height || height === 0) return height;
-        
-        // If it's already a common resolution, return it
-        if (commonResolutions.includes(height)) return height;
-        
-        // Find the closest common resolution
-        let closest = commonResolutions[0];
-        let minDiff = Math.abs(height - closest);
-        
-        for (let res of commonResolutions) {
-          const diff = Math.abs(height - res);
-          if (diff < minDiff) {
-            minDiff = diff;
-            closest = res;
-          }
-        }
-        
-        return closest;
-      }
-      
-      const videoFormats = data.formats.filter(f => {
-        // Exclude non-video formats
-        if (f.ext === "mhtml" || f.ext === "m4a" || f.resolution === "Audio Only") return false;
-        
-        // Include common video formats
-        if (["mp4", "mkv", "webm", "flv", "avi", "mov"].includes(f.ext)) return true;
-        
-        // Include formats with height (video indicators)
-        if (f.height && f.height > 0) return true;
-        
-        return false;
-      });
+      // Get all available video formats
+      const videoFormats = data.formats.filter(f => f.vcodec && f.vcodec !== 'none');
+      const audioFormats = data.formats.filter(f => !f.vcodec || f.vcodec === 'none');
 
-      // Map resolutions to common ones and deduplicate
+      // Deduplicate formats by resolution
       const seenResolutions = new Set();
-      const uniqueVideoFormats = videoFormats.filter(f => {
-        let displayHeight = f.height || 0;
-        
-        // Map unusual resolutions to closest common one
-        if (displayHeight > 0) {
-          displayHeight = mapToCommonResolution(displayHeight);
-          f.displayHeight = displayHeight; // Store the mapped height
+      const uniqueFormats = [];
+      
+      videoFormats.forEach(f => {
+        const resKey = f.height ? `${f.height}p` : f.resolution || f.ext;
+        if (!seenResolutions.has(resKey)) {
+          seenResolutions.add(resKey);
+          uniqueFormats.push(f);
         }
-        
-        const key = displayHeight > 0 ? `${displayHeight}p` : f.resolution;
-        if (seenResolutions.has(key)) return false;
-        seenResolutions.add(key);
-        return true;
       });
 
-      // Sort by quality (highest first)
-      uniqueVideoFormats.sort((a, b) => {
-        const heightA = a.displayHeight || a.height || 0;
-        const heightB = b.displayHeight || b.height || 0;
-        return heightB - heightA;
-      });
-
-      const audioFormats = data.formats.filter(f => 
-        f.resolution === "Audio Only" || f.ext === "m4a" || (f.format_id && f.format_id.match(/audio|bestaudio/))
-      );
-
-
-      // Render video formats (show up to 8 unique resolutions)
-      uniqueVideoFormats.slice(0, 8).forEach(f => {
+      // Render all format cards
+      uniqueFormats.slice(0, 15).forEach(f => {
         const card = document.createElement("div");
         card.className = "format-card";
         const filesize = f.filesize ? `${(f.filesize / 1024 / 1024).toFixed(2)} MB` : "Unknown";
         
-        // Use mapped height for display
         let resolutionText = "Unknown";
-        if (f.displayHeight && f.displayHeight > 0) {
-          resolutionText = `${f.displayHeight}p`;
-        } else if (f.height && f.height > 0) {
+        if (f.height && f.height > 0) {
           resolutionText = `${f.height}p`;
-        } else if (f.resolution && f.resolution !== "Unknown") {
+        } else if (f.resolution) {
           resolutionText = f.resolution;
         }
         
@@ -428,14 +373,14 @@ function analyze() {
             <span class="format-resolution">${resolutionText}</span>
             <span class="format-size">${filesize}</span>
           </div>
-          <button class="btn-download" onclick="downloadVideo('${url}','${f.format_id}')">
+          <button class="btn-download" onclick="downloadVideo('${data.title}','${f.format_id}')">
             <i class="fas fa-download"></i> Download
           </button>
         `;
         formatsList.appendChild(card);
       });
 
-      // Render audio format if available
+      // Audio format
       if (audioFormats.length > 0) {
         const f = audioFormats[0];
         const card = document.createElement("div");
@@ -447,7 +392,7 @@ function analyze() {
             <span class="format-resolution">Audio Only</span>
             <span class="format-size">${filesize}</span>
           </div>
-          <button class="btn-download" onclick="downloadVideo('${url}','${f.format_id}')">
+          <button class="btn-download" onclick="downloadVideo('${data.title}','${f.format_id}')">
             <i class="fas fa-download"></i> Download
           </button>
         `;
@@ -460,9 +405,11 @@ function analyze() {
     });
 }
 
-function downloadVideo(url, format_id) {
+function downloadVideo(title, format_id) {
   const btn = event.target.closest(".btn-download");
+  const url = document.getElementById("videoUrl").value;
   const card = btn.closest(".format-card");
+  
   btn.classList.add("loading");
   btn.disabled = true;
 
@@ -490,39 +437,54 @@ function downloadVideo(url, format_id) {
     progressBar.style.setProperty('--progress-width', currentPercent + "%");
   }, 300);
 
-  fetch("https://youtubevideodownloaderfreefree.onrender.com/api/download", {
+  // Stream download directly to user's device
+  const apiUrl = window.location.hostname === 'localhost' 
+    ? 'http://localhost:3000/api/download' 
+    : window.location.origin + '/api/download';
+
+  fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, format_id })
   })
-    .then(r => r.json())
-    .then(data => {
-      clearInterval(percentInterval);
-      btn.classList.remove("loading");
-      btn.disabled = false;
-      
-      if (data && data.url) {
+    .then(response => {
+      if (!response.ok) {
+        return response.json().then(data => {
+          throw new Error(data.error || 'Download failed');
+        });
+      }
+      return response.blob().then(blob => {
+        clearInterval(percentInterval);
+        btn.classList.remove("loading");
+        btn.disabled = false;
+        
         // Show 100% completion
         currentPercent = 100;
         progressText.textContent = "100%";
         progressBar.style.setProperty('--progress-width', "100%");
         progressContainer.classList.add("complete");
         
-        // Wait a moment then open download
+        // Create download link and trigger download
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `video_${Date.now()}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(blobUrl);
+        document.body.removeChild(a);
+        
         setTimeout(() => {
-          window.open(data.url, '_blank');
           progressContainer.classList.add("hidden");
+          alert("✅ Video downloaded successfully to your device!");
         }, 800);
-      } else {
-        alert("Download failed: " + (data.error || "Unknown error"));
-        progressContainer.classList.add("hidden");
-      }
+      });
     })
     .catch(err => {
       clearInterval(percentInterval);
       btn.classList.remove("loading");
       btn.disabled = false;
-      alert("Download request failed: " + err.message);
+      alert("Download failed: " + err.message);
       progressContainer.classList.add("hidden");
     });
 }
