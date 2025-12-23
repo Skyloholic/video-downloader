@@ -377,10 +377,15 @@ function analyze() {
             <span class="format-resolution">${resolutionText}</span>
             <span class="format-size">${filesize}</span>
           </div>
-          <button class="btn-download" onclick="downloadVideo('${data.title}','${f.format_id}')">
+          <button class="btn-download" data-format="${f.format_id}" data-title="${escapeHtml(data.title)}">
             <i class="fas fa-download"></i> Download
           </button>
         `;
+        
+        card.querySelector('.btn-download').addEventListener('click', function() {
+          downloadVideo(this.dataset.title, this.dataset.format);
+        });
+        
         formatsList.appendChild(card);
       });
 
@@ -396,16 +401,22 @@ function analyze() {
             <span class="format-resolution">Audio Only</span>
             <span class="format-size">${filesize}</span>
           </div>
-          <button class="btn-download" onclick="downloadVideo('${data.title}','${f.format_id}')">
+          <button class="btn-download" data-format="${f.format_id}" data-title="${escapeHtml(data.title)}">
             <i class="fas fa-download"></i> Download
           </button>
         `;
+        
+        card.querySelector('.btn-download').addEventListener('click', function() {
+          downloadVideo(this.dataset.title, this.dataset.format);
+        });
+        
         formatsList.appendChild(card);
       }
     })
-    .catch(() => {
+    .catch((err) => {
       document.getElementById("loader").classList.add("hidden");
-      alert("Error fetching formats");
+      console.error('Analyze error:', err);
+      alert("Error fetching formats: " + err.message);
     });
 }
 

@@ -13,7 +13,7 @@ def get_video_info(url):
     try:
         # Build command with proper headers and options
         cmd = [
-            'python3', '-m', 'yt_dlp',
+            'yt-dlp',
             '--dump-json',
             '-q',
             '--socket-timeout', '30',
@@ -52,7 +52,7 @@ def download_video(url, output_path):
     """Download video to specified path"""
     try:
         cmd = [
-            'python3', '-m', 'yt_dlp',
+            'yt-dlp',
             '-o', output_path,
             '-q',
             '--socket-timeout', '30',
