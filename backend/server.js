@@ -7,6 +7,15 @@ const { spawn } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Helper function to spawn Python with fallback to python3
+function spawnPython(args) {
+  try {
+    return spawn('python', args);
+  } catch {
+    return spawn('python3', args);
+  }
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -37,7 +46,7 @@ app.post('/api/analyze', async (req, res) => {
     // Use Python yt-dlp helper for all platforms
     try {
       const info = await new Promise((resolve, reject) => {
-        const python = spawn('python', [path.join(__dirname, 'yt_dlp_helper.py'), 'info', url]);
+        const python = spawnPython([path.join(__dirname, 'yt_dlp_helper.py'), 'info', url]);
         let output = '';
         let error = '';
 
@@ -111,7 +120,7 @@ app.post('/api/download', async (req, res) => {
 
     try {
       // Use yt-dlp to stream video directly to response
-      const python = spawn('python', [
+      const python = spawnPython([
         '-m', 'yt_dlp',
         '-f', format_id,
         '-o', '-',  // Output to stdout
@@ -172,7 +181,7 @@ app.get('/api/health', async (req, res) => {
   try {
     // Check if yt-dlp is available
     const ytdlpCheck = await new Promise((resolve) => {
-      const python = spawn('python', ['-m', 'yt_dlp', '--version']);
+      const python = spawnPython(['-m', 'yt_dlp', '--version']);
       let output = '';
       
       python.stdout.on('data', (data) => {
