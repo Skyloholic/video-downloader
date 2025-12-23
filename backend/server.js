@@ -1,10 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const ytdl = require('ytdl-core');
+const ytdl = require('@distube/ytdl-core');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Agent for YouTube
+const agent = new (require('https').Agent)({
+  rejectUnauthorized: false,
+});
 
 // Middleware
 app.use(cors());
@@ -32,34 +37,46 @@ app.post('/api/analyze', async (req, res) => {
     // Check if it's a YouTube URL
     if (ytdl.validateURL(url)) {
       try {
-        const info = await ytdl.getInfo(url);
-        const formats = info.formats
-          .filter(f => f.hasVideo || f.hasAudio)
+        const info = await ytdl.getInfo(url, { agent });
+        
+        // Get best formats
+        const videoFormats = info.formats
+          .filter(f => (f.hasVideo || f.hasAudio))
           .map(f => ({
-            format_id: f.itag,
+            format_id: f.itag || f.quality,
             resolution: f.qualityLabel || 'audio',
-            ext: f.container,
-            filesize: f.contentLength ? `${Math.round(f.contentLength / 1024 / 1024)}MB` : 'Unknown'
+            ext: f.mimeType ? f.mimeType.split('/')[1].split(';')[0] : 'mp4',
+            filesize: f.contentLength ? `${Math.round(f.contentLength / 1024 / 1024)}MB` : 'Unknown',
+            itag: f.itag
           }))
-          .filter((f, i, arr) => arr.findIndex(x => x.resolution === f.resolution) === i); // Remove duplicates
+          .filter((f, i, arr) => arr.findIndex(x => x.resolution === f.resolution) === i);
+
+        // Get unique formats
+        const uniqueFormats = [];
+        const seen = new Set();
+        for (const format of videoFormats) {
+          if (!seen.has(format.resolution)) {
+            seen.add(format.resolution);
+            uniqueFormats.push(format);
+          }
+        }
 
         res.json({
           title: info.videoDetails.title,
           duration: info.videoDetails.lengthSeconds,
-          thumbnail: info.videoDetails.thumbnail.thumbnails[0].url,
-          formats: formats.slice(0, 10) // Limit to 10 formats
+          thumbnail: info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1].url,
+          formats: uniqueFormats.slice(0, 15)
         });
       } catch (error) {
         console.error('ytdl error:', error.message);
-        res.status(400).json({ error: 'Failed to fetch video info. Video may be private or unavailable.' });
+        res.status(400).json({ error: 'Failed to fetch video info. Try another video URL.' });
       }
     } else {
-      // For non-YouTube URLs, return a generic message
-      res.status(400).json({ error: 'Currently only YouTube videos are supported' });
+      res.status(400).json({ error: 'Only YouTube videos are supported' });
     }
   } catch (error) {
     console.error('Analyze error:', error);
-    res.status(500).json({ error: 'Failed to analyze video' });
+    res.status(500).json({ error: 'Server error while analyzing video' });
   }
 });
 
@@ -74,7 +91,7 @@ app.post('/api/download', async (req, res) => {
 
     if (ytdl.validateURL(url)) {
       try {
-        const info = await ytdl.getInfo(url);
+        const info = await ytdl.getInfo(url, { agent });
         const format = info.formats.find(f => String(f.itag) === String(format_id));
 
         if (!format) {
@@ -84,7 +101,7 @@ app.post('/api/download', async (req, res) => {
         // Return download URL
         res.json({
           url: format.url,
-          filename: `${info.videoDetails.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${format.container}`,
+          filename: `${info.videoDetails.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${format.mimeType ? format.mimeType.split('/')[1].split(';')[0] : 'mp4'}`,
           size: format.contentLength ? `${Math.round(format.contentLength / 1024 / 1024)}MB` : 'Unknown'
         });
       } catch (error) {
@@ -92,11 +109,11 @@ app.post('/api/download', async (req, res) => {
         res.status(400).json({ error: 'Failed to get download link' });
       }
     } else {
-      res.status(400).json({ error: 'Currently only YouTube videos are supported' });
+      res.status(400).json({ error: 'Only YouTube videos are supported' });
     }
   } catch (error) {
     console.error('Download error:', error);
-    res.status(500).json({ error: 'Failed to download video' });
+    res.status(500).json({ error: 'Failed to process download' });
   }
 });
 
