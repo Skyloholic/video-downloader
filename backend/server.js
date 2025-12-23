@@ -167,9 +167,39 @@ app.post('/api/download', async (req, res) => {
   }
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
+// Health check with yt-dlp verification
+app.get('/api/health', async (req, res) => {
+  try {
+    // Check if yt-dlp is available
+    const ytdlpCheck = await new Promise((resolve) => {
+      const python = spawn('python', ['-m', 'yt_dlp', '--version']);
+      let output = '';
+      
+      python.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+      
+      python.on('close', (code) => {
+        resolve(code === 0 ? output.trim() : 'not found');
+      });
+      
+      python.on('error', () => {
+        resolve('not found');
+      });
+    });
+
+    res.json({ 
+      status: 'OK', 
+      message: 'Server is running',
+      ytdlp: ytdlpCheck
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'ERROR',
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
 });
 
 // Serve index.html for SPA

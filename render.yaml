@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: video-downloader
+    runtime: node
+    plan: free
+    buildCommand: |
+      npm install && pip install yt-dlp
+    startCommand: "cd backend && npm install && node server.js"
+    envVars:
+      - key: NODE_ENV
+        value: production
