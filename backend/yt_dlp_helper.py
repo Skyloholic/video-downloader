@@ -23,7 +23,7 @@ def get_video_info(url):
             '--add-header', 'Accept-Encoding:gzip,deflate',
             '--no-check-certificates',
             '--extractor-args', 'youtube:player_client=android',  # Use Android client (simpler, no JS required)
-            '--cookies', 'd:/video_downloader/backend/cookies.txt',
+            '--cookies', 'backend/cookies.txt',
             url
         ]
         
@@ -66,7 +66,7 @@ def download_video(url, output_path):
             '--add-header', 'Accept-Encoding:gzip,deflate',
             '--no-check-certificates',
             '--extractor-args', 'youtube:player_client=android',  # Use Android client (simpler, no JS required)
-            '--cookies', 'd:/video_downloader/backend/cookies.txt',
+            '--cookies', 'backend/cookies.txt',
             url
         ]
         
